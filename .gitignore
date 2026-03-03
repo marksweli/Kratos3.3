@@ -89,3 +89,6 @@ remote_*.md
 
 # External downloaded libs (TPL downloaded libs, etc...)
 external_libraries/tetgen/*
+
+# Generated simulation output files
+examples/sediment_dumping_pfem/sediment_settling_results.png
