@@ -1,0 +1,57 @@
+Begin ModelPartData
+//  VARIABLE_NAME value
+End ModelPartData
+
+Begin Properties 0
+End Properties
+
+Begin Nodes
+        1   0.3350000000   0.6800000000   0.00000000000
+        2   0.3450000000   0.6800000000   0.00000000000
+        3   0.3550000000   0.6800000000   0.00000000000
+        4   0.3650000000   0.6800000000   0.00000000000
+        5   0.3350000000   0.6900000000   0.00000000000
+        6   0.3450000000   0.6900000000   0.00000000000
+        7   0.3550000000   0.6900000000   0.00000000000
+        8   0.3650000000   0.6900000000   0.00000000000
+        9   0.3350000000   0.7000000000   0.00000000000
+       10   0.3450000000   0.7000000000   0.00000000000
+       11   0.3550000000   0.7000000000   0.00000000000
+       12   0.3650000000   0.7000000000   0.00000000000
+End Nodes
+
+Begin Elements MPMUpdatedLagrangian2D4N// GUI group identifier: Parts_Sediment
+        1          0         1         2         6         5
+        2          0         2         3         7         6
+        3          0         3         4         8         7
+        4          0         5         6         10         9
+        5          0         6         7         11         10
+        6          0         7         8         12         11
+End Elements
+
+Begin SubModelPart Parts_Sediment // Group Parts_Sediment // Subtree Parts
+    Begin SubModelPartNodes
+           1
+           2
+           3
+           4
+           5
+           6
+           7
+           8
+           9
+           10
+           11
+           12
+    End SubModelPartNodes
+    Begin SubModelPartElements
+           1
+           2
+           3
+           4
+           5
+           6
+    End SubModelPartElements
+    Begin SubModelPartConditions
+    End SubModelPartConditions
+End SubModelPart

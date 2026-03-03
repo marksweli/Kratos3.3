@@ -1,0 +1,113 @@
+{
+    "problem_data" : {
+        "problem_name"  : "SedimentDumping",
+        "parallel_type" : "OpenMP",
+        "start_time"    : 0.0,
+        "end_time"      : 0.2,
+        "echo_level"    : 0
+    },
+    "solver_settings" : {
+        "solver_type"                        : "Dynamic",
+        "model_part_name"                    : "MPM_Material",
+        "domain_size"                        : 2,
+        "echo_level"                         : 0,
+        "analysis_type"                      : "non_linear",
+        "time_integration_method"            : "implicit",
+        "scheme_type"                        : "newmark",
+        "model_import_settings"              : {
+            "input_type"     : "mdpa",
+            "input_filename" : "SedimentDumping_Body"
+        },
+        "material_import_settings"           : {
+            "materials_filename" : "SedimentDumping_materials.json"
+        },
+        "time_stepping"                      : {
+            "time_step" : 0.001
+        },
+        "convergence_criterion"              : "residual_criterion",
+        "displacement_relative_tolerance"    : 0.0001,
+        "displacement_absolute_tolerance"    : 1e-9,
+        "residual_relative_tolerance"        : 0.0001,
+        "residual_absolute_tolerance"        : 1e-9,
+        "max_iteration"                      : 20,
+        "problem_domain_sub_model_part_list" : ["Parts_Sediment"],
+        "processes_sub_model_part_list"      : [
+            "DISPLACEMENT_Displacement_Bottom",
+            "DISPLACEMENT_Displacement_Left",
+            "DISPLACEMENT_Displacement_Right"
+        ],
+        "grid_model_import_settings"         : {
+            "input_type"     : "mdpa",
+            "input_filename" : "SedimentDumping_Grid"
+        },
+        "pressure_dofs"                      : false
+    },
+    "processes" : {
+        "constraints_process_list" : [{
+            "python_module" : "assign_vector_variable_process",
+            "kratos_module" : "KratosMultiphysics",
+            "Parameters"    : {
+                "model_part_name" : "Background_Grid.DISPLACEMENT_Displacement_Bottom",
+                "variable_name"   : "DISPLACEMENT",
+                "constrained"     : [true, true, true],
+                "value"           : [0.0, 0.0, 0.0],
+                "interval"        : [0.0, "End"]
+            }
+        },{
+            "python_module" : "assign_vector_variable_process",
+            "kratos_module" : "KratosMultiphysics",
+            "Parameters"    : {
+                "model_part_name" : "Background_Grid.DISPLACEMENT_Displacement_Left",
+                "variable_name"   : "DISPLACEMENT",
+                "constrained"     : [true, false, true],
+                "value"           : [0.0, 0.0, 0.0],
+                "interval"        : [0.0, "End"]
+            }
+        },{
+            "python_module" : "assign_vector_variable_process",
+            "kratos_module" : "KratosMultiphysics",
+            "Parameters"    : {
+                "model_part_name" : "Background_Grid.DISPLACEMENT_Displacement_Right",
+                "variable_name"   : "DISPLACEMENT",
+                "constrained"     : [true, false, true],
+                "value"           : [0.0, 0.0, 0.0],
+                "interval"        : [0.0, "End"]
+            }
+        }],
+        "gravity" : [{
+            "python_module" : "assign_gravity_to_material_point_process",
+            "kratos_module" : "KratosMultiphysics.MPMApplication",
+            "process_name"  : "AssignGravityToMaterialPointProcess",
+            "Parameters"    : {
+                "model_part_name" : "MPM_Material",
+                "modulus"         : 9.81,
+                "direction"       : [0.0, -1.0, 0.0]
+            }
+        }],
+        "initial_conditions_processes" : [{
+            "python_module" : "assign_initial_velocity_to_material_point_process",
+            "kratos_module" : "KratosMultiphysics.MPMApplication",
+            "process_name"  : "AssignInitialVelocityToMaterialPointProcess",
+            "Parameters"    : {
+                "model_part_name" : "Initial_MPM_Material.Parts_Sediment",
+                "modulus"         : 0.154,
+                "direction"       : [0.0, -1.0, 0.0]
+            }
+        }],
+        "list_other_processes" : []
+    },
+    "output_processes" : {
+        "vtk_output" : [{
+            "python_module" : "mpm_vtk_output_process",
+            "kratos_module" : "KratosMultiphysics.MPMApplication",
+            "process_name"  : "MPMVtkOutputProcess",
+            "Parameters"    : {
+                "model_part_name"                    : "MPM_Material",
+                "output_path"                        : "vtk_output",
+                "save_output_files_in_folder"         : true,
+                "output_interval"                    : 0.01,
+                "gauss_point_variables_in_elements"  : ["MP_VELOCITY", "MP_DISPLACEMENT", "MP_DENSITY", "MP_VOLUME"]
+            }
+        }]
+    }
+}
