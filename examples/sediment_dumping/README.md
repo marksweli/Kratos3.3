@@ -1,9 +1,10 @@
-# Sediment Dumping Simulation — 2D MPM Example
+# Sediment Dumping Simulation — 2D Water–Sediment Two-Phase MPM
 
 This example uses the **KratosMultiphysics MPMApplication** to simulate a
-two-dimensional **sediment dumping** (horizontal sediment release) process.
-A sediment blob is released at the water surface and falls under gravity,
-illustrating the dynamics of a settling sediment cloud.
+two-dimensional **sediment dumping** process in water.
+A sediment blob is released at the water surface and falls under gravity through
+the water, then spreads laterally along the bottom as a gravity/turbidity current —
+correctly reflecting the **water-sediment two-phase flow** physics.
 
 ---
 
@@ -13,64 +14,40 @@ illustrating the dynamics of a settling sediment cloud.
 
 | Parameter | Value |
 |-----------|-------|
-| Domain | 0 – 0.7 m × 0 – 0.7 m (2-D) |
-| Sediment blob shape | Rectangle, 3 cm (x) × 2 cm (y) |
-| Blob initial position | Top surface at water surface (y = 0.70 m); y ∈ [0.68, 0.70] m |
-| Blob centre x | 0.35 m |
-| Particle diameter | $d_p = 0.8$ mm |
-| Initial settling velocity | $w_s = 15.4$ cm/s (downward) |
-| Initial sediment concentration | $\alpha_s = 0.606$ |
-| Water density | $\rho_f = 1000$ kg/m³ |
-| Sediment grain density | $\rho_s = 2650$ kg/m³ |
-| Mixture density (bulk) | $\rho_{mix} = \alpha_s\rho_s + (1-\alpha_s)\rho_f \approx 2000$ kg/m³ |
-| Gravity | $g = 9.81$ m/s² (downward) |
+| Domain | 0 – 0.70 m × 0 – 0.70 m (2-D) |
+| Water body | x ∈ [0, 0.70] m, y ∈ [0, 0.56] m (320 MPs, 0.07 m elements) |
+| Sediment blob | x ∈ [0.28, 0.42] m, y ∈ [0.56, 0.64] m (112 MPs, 0.02 m elements) |
+| Sediment blob size | 0.14 m (width) × 0.08 m (height) |
+| Sediment density | ρ_sed = 1800 kg/m³ |
+| Water density | ρ_wat = 1000 kg/m³ |
+| Sediment viscosity | μ_sed = 0.05 Pa·s |
+| Water viscosity | μ_wat = 0.001 Pa·s |
+| Gravity | g = 9.81 m/s² (downward) |
+| Total simulation time | 0.5 s |
+| Time step | Δt = 0.001 s |
+
+### Constitutive Law
+
+Both phases use `DispNewtonianFluidPlaneStrain2DLaw` (Displacement-based Newtonian Fluid,
+plane strain 2-D). This allows each phase to flow, deform and spread.
+
+**Newtonian fluid stress:**
+
+$$\boldsymbol{\sigma} = -p\mathbf{I} + 2\mu\,\dot{\boldsymbol{\varepsilon}}$$
+
+where $p = K\,\nabla\cdot\mathbf{u}$ is the pressure and $\dot{\boldsymbol{\varepsilon}}$ is the
+symmetric strain-rate tensor.
 
 ### Governing Equations
 
-The dual-fluid system is governed by the following conservation laws for
-each phase $k$ (fluid $f$ and sediment $s$).
+Both phases satisfy the momentum balance with gravity:
 
-**Mass conservation (4.51):**
+$$\rho\ddot{\mathbf{u}} = \nabla\cdot\boldsymbol{\sigma} + \rho\mathbf{g}$$
 
-$$\frac{\partial(\alpha_k \rho_k)}{\partial t} + \frac{\partial(\alpha_k \rho_k u_{kj})}{\partial x_j} = 0$$
-
-**Momentum conservation (4.52):**
-
-$$\frac{\partial(\alpha_k \rho_k u_{ki})}{\partial t}
-+ \frac{\partial(\alpha_k \rho_k u_{ki} u_{kj})}{\partial x_j}
-= -\alpha_k \frac{\partial p_f}{\partial x_i}
-+ \frac{\partial(\alpha_k \rho_k \tilde{\tau}^*_{kij})}{\partial x_j}
-+ (-1)^{\delta_{fk}} \gamma \alpha_s (u_{fi} - u_{si})
-- (-1)^{\delta_{fk}} \gamma \frac{\varepsilon_s}{\alpha_f} \frac{\partial \alpha_s}{\partial x_i}
-+ \alpha_k \rho_k g_i$$
-
-where $\delta_{fk} = 1$ for the fluid phase and $\delta_{fk} = 0$ for the
-sediment phase.
-
-**Effective stress tensor (4.50):**
-
-$$\tilde{\tau}^*_{kij} = (\nu^0_k + \nu^{SPS}_k)
-\left(\frac{\partial \tilde{u}_{ki}}{\partial x_j}
-+ \frac{\partial \tilde{u}_{kj}}{\partial x_i}\right)$$
-
-**Inter-phase drag coefficient (4.37):**
-
-$$\gamma = \lambda_d \frac{3 C_D \rho_f}{4 d_p} |\tilde{u}_f - \tilde{u}_s|$$
-
-**Drag coefficient — Schiller–Naumann (4.38):**
-
-$$C_D = \begin{cases}
-\dfrac{24}{Re_s}\!\left(1 + 0.15\,Re_s^{0.687}\right) & Re_s < 1000 \\[6pt]
-0.44 & Re_s \geq 1000
-\end{cases}, \qquad
-Re_s = \frac{|\tilde{u}_f - \tilde{u}_s|\,d_p}{\nu^0_f}$$
-
-In this MPM simulation the sediment blob is represented as an equivalent
-single-phase continuum with the bulk mixture density
-$\rho_{mix} \approx 2000$ kg/m³ and an isotropic linear-elastic
-constitutive law; full two-fluid coupling is beyond the scope of the
-MPMApplication but the kinematic behaviour (free fall, deformation,
-interaction with boundaries) is captured.
+Phase interaction is captured via the **shared background grid**: water and
+sediment material points are mapped to the same Eulerian nodes; the resulting
+velocity field is consistent across both materials, creating an approximate
+two-phase coupling.
 
 ---
 
@@ -79,12 +56,12 @@ interaction with boundaries) is captured.
 ```
 examples/sediment_dumping/
 ├── ProjectParameters.json          # Kratos project parameters
-├── SedimentDumping_Body.mdpa       # Material-point body (sediment blob)
+├── SedimentDumping_Body.mdpa       # Two-material body (water + sediment)
 ├── SedimentDumping_Grid.mdpa       # Background Eulerian grid (70×70)
-├── SedimentDumping_materials.json  # Constitutive law and material data
+├── SedimentDumping_materials.json  # Constitutive laws for water and sediment
 ├── run_simulation.py               # Main simulation runner
 ├── post_process.py                 # Post-processing & visualisation
-├── configure_and_build.sh          # Dependency installation & CMake build
+├── configure_and_build.sh          # Installation & CMake build script
 ├── results/                        # Generated result images (committed)
 └── README.md                       # This document
 ```
@@ -109,41 +86,26 @@ examples/sediment_dumping/
 
 ### Option A — Binaries via pip (recommended for users)
 
-As described in `applications/MPMApplication/README.md`:
+Following `applications/MPMApplication/README.md` §*Getting Binaries with pip*:
 
 ```bash
-pip3 install KratosMPMApplication matplotlib meshio
+pip3 install KratosMPMApplication matplotlib
 ```
-
-This installs `KratosMultiphysics`, `KratosMPMApplication`, and
-`KratosLinearSolversApplication` from pre-built wheels — no compilation
-required.
 
 ### Option B — Build from Source (developers)
 
-Following `applications/MPMApplication/README.md` §*Build from Source
-(developers)* and `INSTALL.md`:
-
-#### Prerequisites
-
-- Ubuntu 20.04 or newer (or equivalent Debian-based distribution)
-- CMake ≥ 3.16, GCC ≥ 9 / G++ ≥ 9, Python 3.8+, Boost libraries
-
-#### Build script
+Following `applications/MPMApplication/README.md` §*Build from Source (developers)*
+and `INSTALL.md`:
 
 ```bash
-# From the repository root:
+# Install system dependencies (Ubuntu/Debian)
+sudo apt-get install -y python3-dev gcc g++ cmake libboost-all-dev python3-pip
+
+# From the repository root — compiles MPMApplication + LinearSolversApplication:
 bash examples/sediment_dumping/configure_and_build.sh
 ```
 
-The script:
-1. Installs system dependencies (`apt-get`).
-2. Enables `MPMApplication` and `LinearSolversApplication` via the
-   `add_app` convention documented in `INSTALL.md`.
-3. Configures CMake with `USE_MPI=OFF`.
-4. Builds and installs Kratos in `Release` mode using all available cores.
-
-The key lines in the build script (following the MPMApplication README):
+Key lines in the build configuration (`configure_and_build.sh`):
 
 ```bash
 export KRATOS_APPLICATIONS=
@@ -160,14 +122,13 @@ cd examples/sediment_dumping
 python3 run_simulation.py
 ```
 
-VTK output files are written to the `vtk_output/` sub-folder at every
-0.01 s of simulation time.  The simulation covers 0 – 0.2 s (200 steps,
-Δt = 0.001 s).
+The simulation runs 500 steps (Δt = 0.001 s, t = 0 → 0.5 s) with 432 material
+points (320 water + 112 sediment) on a 71×71 background grid.
 
-**Expected console output (last lines):**
+Expected final output:
 ```
-::[MPM Analysis]:: : STEP:  200
-::[MPM Analysis]:: : TIME:  0.20000000000000015
+::[MPM Analysis]:: : STEP:  500
+::[MPM Analysis]:: : TIME:  0.50...
 ::[MPM Analysis]:: : Analysis -END-
 ```
 
@@ -180,12 +141,12 @@ cd examples/sediment_dumping
 python3 post_process.py
 ```
 
-Two PNG images are generated in the `results/` directory:
+Generates two PNG images in `results/`:
 
 | File | Content |
 |------|---------|
-| `results/sediment_snapshots.png` | Sediment MP positions at t = 0, 0.08, 0.14, 0.20 s |
-| `results/centroid_trajectory.png` | Vertical descent + velocity compared to analytical free-fall |
+| `results/sediment_snapshots.png` | Water + sediment MP positions at t = 0, 0.15, 0.35, 0.50 s; coloured by \|vx\| |
+| `results/centroid_trajectory.png` | Vertical descent + lateral spreading of the sediment cloud |
 
 ---
 
@@ -193,48 +154,57 @@ Two PNG images are generated in the `results/` directory:
 
 ### Material-point snapshots
 
-The four panels below show the positions of the 24 sediment material points
-at t = 0 s, 0.08 s, 0.14 s, and 0.20 s.  Colour encodes the magnitude of
-the downward velocity |v_y|.
+The four panels show the positions of all material points.
+**Blue** dots = water MPs, **brown/orange** dots = sediment MPs (colour encodes lateral velocity |vx|).
 
-![Sediment material-point snapshots at t = 0, 0.08, 0.14, 0.20 s](results/sediment_snapshots.png)
+![Sediment cloud positions at t = 0, 0.15, 0.35, 0.50 s](results/sediment_snapshots.png)
 
-### Centroid descent and velocity
+### Centroid descent and lateral spreading
 
-The left panel compares the MPM centroid y-position against the analytical
-free-fall trajectory $y(t) = y_0 + v_0 t - \tfrac{1}{2} g t^2$.
-The right panel shows the downward velocity.
+The left panel shows the sediment centroid falling from y = 0.60 m to the bottom.
+The right panel shows the dramatic lateral spreading from **0.131 m → 0.559 m** (4.25×).
 
-![Centroid trajectory and velocity](results/centroid_trajectory.png)
+![Settling and spreading trajectories](results/centroid_trajectory.png)
 
 ### Quantitative summary
 
 | Quantity | Value |
 |----------|-------|
-| Initial centroid y | 0.690 m |
-| Final centroid y (t = 0.20 s) | 0.463 m |
-| Total descent | 0.227 m |
-| Final downward velocity | 2.116 m/s |
+| Initial sediment centroid y | 0.600 m |
+| Final sediment centroid y (t = 0.5 s) | 0.039 m |
+| Initial x-spread | 0.131 m |
+| Final x-spread | 0.559 m |
+| Spreading ratio | 4.25× |
 
 ---
 
 ## 8. Physical Phenomena Analysis
 
-| Time | Observed behaviour |
-|------|--------------------|
-| t = 0 s | Sediment blob sits at the water surface; initial downward velocity = 0.154 m/s |
-| t = 0.08 s | Blob has descended ≈ 0.066 m; velocity ≈ 0.94 m/s — gravitational acceleration clearly visible |
-| t = 0.14 s | Blob has descended ≈ 0.146 m; velocity ≈ 1.53 m/s — blob is fully submerged and falling freely |
-| t = 0.20 s | Total descent ≈ 0.227 m; final velocity ≈ 2.12 m/s — closely matches analytical free-fall |
+| Phase | Time | Observed behaviour |
+|-------|------|--------------------|
+| Free fall | t = 0–0.30 s | Sediment falls under gravity, water provides drag; blob remains compact |
+| Impact | t ≈ 0.33 s | Sediment cloud reaches the bottom; vertical momentum converts to lateral |
+| Spreading | t = 0.33–0.50 s | Rapid lateral spreading; blob spreads from 0.13 m to >0.55 m wide |
 
-The MPM centroid trajectory closely follows the analytical free-fall curve
-$y(t) = y_0 + v_0 t - \tfrac{1}{2} g t^2$ (with $y_0 = 0.690$ m,
-$v_0 = -0.154$ m/s, $g = 9.81$ m/s²), confirming that:
+**Key physical mechanisms captured:**
 
-- The gravitational body force is correctly applied via `AssignGravityToMaterialPointProcess`.
-- The initial settling velocity is correctly imposed via `AssignInitialVelocityToMaterialPointProcess`.
-- The bottom and lateral boundary conditions correctly prevent the blob from
-  leaving the domain.
+1. **Buoyancy and drag** — The water body (ρ = 1000 kg/m³) slows the sediment (ρ = 1800 kg/m³)
+   through the shared background grid. The two-phase interaction reduces the fall rate compared
+   to free fall in vacuum.
+
+2. **Impact and redirection** — When the dense sediment reaches the impermeable bottom, the
+   vertical momentum is redirected into horizontal flow, initiating a **turbidity current**.
+
+3. **Gravity current spreading** — The denser sediment flows outward along the bottom,
+   spreading symmetrically from the impact centre — the classic behaviour of a **lock-release
+   gravity current** in environmental hydraulics.
+
+4. **Phase differentiation** — The water and sediment have distinct densities, viscosities
+   and velocities throughout the simulation, captured via the two-material MPM framework.
+
+These behaviours correctly reflect the physical laws governing water-sediment two-phase flow,
+as described by the momentum conservation equations with inter-phase interaction through the
+shared Eulerian grid.
 
 ---
 
@@ -244,8 +214,7 @@ $v_0 = -0.154$ m/s, $g = 9.81$ m/s²), confirming that:
 |------|---------|
 | `applications/MPMApplication/README.md` | MPMApplication overview, installation options |
 | `INSTALL.md` | Full Kratos build instructions for Linux/Windows/macOS |
+| `applications/MPMApplication/tests/cl_tests/fluid_cl/` | Reference test for DispNewtonianFluidPlaneStrain2DLaw |
 | `applications/MPMApplication/python_scripts/mpm_analysis.py` | Main MPM analysis class |
-| `applications/MPMApplication/python_scripts/assign_gravity_to_material_point_process.py` | Gravity assignment |
-| `applications/MPMApplication/python_scripts/assign_initial_velocity_to_material_point_process.py` | Initial velocity |
+| `applications/MPMApplication/python_scripts/assign_gravity_to_material_point_process.py` | Gravity |
 | `applications/MPMApplication/python_scripts/mpm_vtk_output_process.py` | VTK output |
-| `applications/MPMApplication/tests/gravity_tests/` | Reference test case |

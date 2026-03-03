@@ -3,7 +3,7 @@
         "problem_name"  : "SedimentDumping",
         "parallel_type" : "OpenMP",
         "start_time"    : 0.0,
-        "end_time"      : 0.2,
+        "end_time"      : 0.5,
         "echo_level"    : 0
     },
     "solver_settings" : {
@@ -25,12 +25,12 @@
             "time_step" : 0.001
         },
         "convergence_criterion"              : "residual_criterion",
-        "displacement_relative_tolerance"    : 0.0001,
+        "displacement_relative_tolerance"    : 0.001,
         "displacement_absolute_tolerance"    : 1e-9,
-        "residual_relative_tolerance"        : 0.0001,
+        "residual_relative_tolerance"        : 0.001,
         "residual_absolute_tolerance"        : 1e-9,
-        "max_iteration"                      : 20,
-        "problem_domain_sub_model_part_list" : ["Parts_Sediment"],
+        "max_iteration"                      : 30,
+        "problem_domain_sub_model_part_list" : ["Parts_Water", "Parts_Sediment"],
         "processes_sub_model_part_list"      : [
             "DISPLACEMENT_Displacement_Bottom",
             "DISPLACEMENT_Displacement_Left",
@@ -84,16 +84,7 @@
                 "direction"       : [0.0, -1.0, 0.0]
             }
         }],
-        "initial_conditions_processes" : [{
-            "python_module" : "assign_initial_velocity_to_material_point_process",
-            "kratos_module" : "KratosMultiphysics.MPMApplication",
-            "process_name"  : "AssignInitialVelocityToMaterialPointProcess",
-            "Parameters"    : {
-                "model_part_name" : "Initial_MPM_Material.Parts_Sediment",
-                "modulus"         : 0.154,
-                "direction"       : [0.0, -1.0, 0.0]
-            }
-        }],
+        "initial_conditions_processes" : [],
         "list_other_processes" : []
     },
     "output_processes" : {
@@ -105,7 +96,7 @@
                 "model_part_name"                    : "MPM_Material",
                 "output_path"                        : "vtk_output",
                 "save_output_files_in_folder"         : true,
-                "output_interval"                    : 0.01,
+                "output_interval"                    : 0.025,
                 "gauss_point_variables_in_elements"  : ["MP_VELOCITY", "MP_DISPLACEMENT", "MP_DENSITY", "MP_VOLUME"]
             }
         }]
