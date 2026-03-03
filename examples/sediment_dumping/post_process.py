@@ -1,223 +1,301 @@
 """
 Post-processing script for the sediment dumping simulation.
 
-Reads VTK output files produced by Kratos MPMApplication and generates
-snapshot images of the sediment blob position at specified time steps.
+Reads the binary VTK output files produced by Kratos MPMApplication and
+generates snapshot images of the sediment material-point positions at
+specified times, together with a centroid-descent trajectory plot.
 
-Usage:
+Usage (run from the examples/sediment_dumping directory):
     python3 post_process.py
 """
 
 import os
 import glob
-import re
+import struct
+
 import numpy as np
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
+import matplotlib.cm as cm
 
 
-def parse_vtk_unstructured_grid(filepath):
-    """Parse a legacy VTK unstructured grid file and return points and field data."""
-    points = []
-    mp_velocity = []
-    mp_displacement = []
-    mp_density = []
+# ---------------------------------------------------------------------------
+# Binary VTK parser (big-endian, format 4.0)
+# ---------------------------------------------------------------------------
 
-    with open(filepath, "r") as f:
-        lines = f.readlines()
+def _parse_vtk_binary(filepath):
+    """Parse a Kratos-generated binary VTK unstructured grid file.
 
-    i = 0
-    n_points = 0
-    while i < len(lines):
-        line = lines[i].strip()
+    Returns a dict with keys:
+      'points'          – (N, 2) float array of current MP positions
+      'MP_VELOCITY'     – (N, 2) float array  [optional]
+      'MP_DISPLACEMENT' – (N, 2) float array  [optional]
+      'MP_DENSITY'      – (N,)   float array  [optional]
+      'MP_VOLUME'       – (N,)   float array  [optional]
+    """
+    with open(filepath, "rb") as fh:
+        raw = fh.read()
 
-        if line.startswith("POINTS"):
-            parts = line.split()
-            n_points = int(parts[1])
-            i += 1
-            while len(points) < n_points:
-                vals = lines[i].strip().split()
-                for k in range(0, len(vals), 3):
-                    if len(points) < n_points:
-                        points.append([float(vals[k]), float(vals[k+1])])
-                i += 1
-            continue
+    pos = 0
 
-        if line.startswith("FIELD") or line.startswith("POINT_DATA"):
-            i += 1
-            continue
+    def _readline():
+        nonlocal pos
+        end = raw.find(b'\n', pos)
+        if end == -1:
+            end = len(raw)
+        line = raw[pos:end].decode('ascii', errors='replace').strip()
+        pos = end + 1
+        return line
 
-        if line.startswith("MP_VELOCITY"):
-            parts = line.split()
-            n = int(parts[1]) if len(parts) > 1 else n_points
-            i += 1
-            while len(mp_velocity) < n:
-                vals = lines[i].strip().split()
-                for k in range(0, len(vals), 3):
-                    if len(mp_velocity) < n:
-                        mp_velocity.append([float(vals[k]), float(vals[k+1])])
-                i += 1
-            continue
+    def _skip_newline():
+        nonlocal pos
+        if pos < len(raw) and raw[pos:pos+1] == b'\n':
+            pos += 1
 
-        if line.startswith("MP_DISPLACEMENT"):
-            parts = line.split()
-            n = int(parts[1]) if len(parts) > 1 else n_points
-            i += 1
-            while len(mp_displacement) < n:
-                vals = lines[i].strip().split()
-                for k in range(0, len(vals), 3):
-                    if len(mp_displacement) < n:
-                        mp_displacement.append([float(vals[k]), float(vals[k+1])])
-                i += 1
-            continue
+    def _read_floats(n):
+        nonlocal pos
+        nb = n * 4
+        if pos + nb > len(raw):
+            raise ValueError(
+                f"Unexpected end of file reading {n} floats at offset {pos} "
+                f"in '{filepath}'.")
+        vals = struct.unpack(f'>{n}f', raw[pos:pos+nb])
+        pos += nb
+        return vals
 
-        if line.startswith("MP_DENSITY"):
-            parts = line.split()
-            n = int(parts[1]) if len(parts) > 1 else n_points
-            i += 1
-            while len(mp_density) < n:
-                vals = lines[i].strip().split()
-                for v in vals:
-                    if len(mp_density) < n:
-                        mp_density.append(float(v))
-                i += 1
-            continue
+    def _read_ints(n):
+        nonlocal pos
+        nb = n * 4
+        if pos + nb > len(raw):
+            raise ValueError(
+                f"Unexpected end of file reading {n} ints at offset {pos} "
+                f"in '{filepath}'.")
+        vals = struct.unpack(f'>{n}i', raw[pos:pos+nb])
+        pos += nb
+        return vals
 
-        i += 1
+    # --- header (ASCII) ---
+    _readline()              # # vtk DataFile Version 4.0
+    _readline()              # vtk output
+    _readline()              # BINARY
+    _readline()              # DATASET UNSTRUCTURED_GRID
 
-    return {
-        "points": np.array(points) if points else np.empty((0, 2)),
-        "MP_VELOCITY": np.array(mp_velocity) if mp_velocity else np.empty((0, 2)),
-        "MP_DISPLACEMENT": np.array(mp_displacement) if mp_displacement else np.empty((0, 2)),
-        "MP_DENSITY": np.array(mp_density) if mp_density else np.empty(0),
-    }
+    points_line = _readline()   # POINTS N float
+    n_pts = int(points_line.split()[1])
+
+    coords = _read_floats(n_pts * 3)
+    _skip_newline()
+    pts = np.array([(coords[i*3], coords[i*3+1]) for i in range(n_pts)],
+                   dtype=np.float32)
+
+    # CELLS N size
+    cells_line = _readline()
+    parts = cells_line.split()
+    n_cells, n_ints = int(parts[1]), int(parts[2])
+    _read_ints(n_ints)
+    _skip_newline()
+
+    # CELL_TYPES N
+    ct_line = _readline()
+    n_ct = int(ct_line.split()[1])
+    _read_ints(n_ct)
+    _skip_newline()
+
+    # CELL_DATA N or POINT_DATA N
+    _readline()
+
+    # FIELD FieldData N
+    field_line = _readline()
+    n_fields = int(field_line.split()[2])
+
+    result = {'points': pts}
+    for _ in range(n_fields):
+        fl = _readline()   # name n_comp n_tuples dtype
+        parts = fl.split()
+        fname, n_comp, n_tuples = parts[0], int(parts[1]), int(parts[2])
+        vals = _read_floats(n_comp * n_tuples)
+        _skip_newline()
+        if n_comp >= 2:
+            result[fname] = np.array(
+                [(vals[i*n_comp], vals[i*n_comp+1]) for i in range(n_tuples)],
+                dtype=np.float32)
+        else:
+            result[fname] = np.array(vals, dtype=np.float32)
+
+    return result
 
 
-def get_time_from_filename(filename):
-    """Extract simulation time from VTK filename (e.g. MPM_Material_0.08.vtk)."""
-    match = re.search(r"_(\d+\.\d+)\.vtk$", filename)
-    if match:
-        return float(match.group(1))
-    match = re.search(r"_(\d+)\.vtk$", filename)
-    if match:
-        return float(match.group(1))
-    return None
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _step_number(basename):
+    """Return the integer step number from a filename like MPM_Material_0_42.vtk.
+
+    Raises ValueError if the filename doesn't match the expected pattern.
+    """
+    stem = os.path.splitext(basename)[0]   # MPM_Material_0_42
+    parts = stem.rsplit('_', 1)
+    if len(parts) != 2 or not parts[1].isdigit():
+        raise ValueError(
+            f"Cannot extract step number from VTK filename: '{basename}'. "
+            "Expected format: 'MPM_Material_0_<step>.vtk'.")
+    return int(parts[1])
 
 
-def plot_snapshot(ax, data, time, domain=(0.7, 0.7)):
-    """Plot a single time snapshot of material point positions."""
-    pts = data["points"]
-    disp = data["MP_DISPLACEMENT"]
+def _collect_files(vtk_dir, dt=0.001):
+    """Return a sorted list of (time, filepath) tuples for MPM_Material VTK files."""
+    pattern = os.path.join(vtk_dir, "MPM_Material_0_*.vtk")
+    files = sorted(glob.glob(pattern), key=lambda p: _step_number(os.path.basename(p)))
+    return [((_step_number(os.path.basename(p))) * dt, p) for p in files]
 
-    if pts.size == 0:
-        ax.set_title(f"t = {time:.3f} s (no data)")
+
+# ---------------------------------------------------------------------------
+# Plotting helpers
+# ---------------------------------------------------------------------------
+
+def _plot_snapshot(ax, data, time, vel_data=None, domain=(0.7, 0.7)):
+    """Render one time snapshot on *ax*."""
+    pts = data['points']          # current positions (Kratos writes updated coords)
+    if pts.shape[0] == 0:
+        ax.set_title(f"t = {time:.3f} s  (no data)")
         return
 
-    # If displacement data is available, compute current positions
-    if disp.size > 0 and disp.shape[0] == pts.shape[0]:
-        current_x = pts[:, 0] + disp[:, 0]
-        current_y = pts[:, 1] + disp[:, 1]
+    # colour by vertical velocity magnitude if available
+    if vel_data is not None and 'MP_VELOCITY' in vel_data:
+        vy = np.abs(vel_data['MP_VELOCITY'][:, 1])
+        c_vals = vy
+        cmap = cm.YlOrRd
     else:
-        current_x = pts[:, 0]
-        current_y = pts[:, 1]
+        c_vals = 'saddlebrown'
+        cmap = None
 
-    ax.set_facecolor("#d0e8f5")  # water color
-    scatter = ax.scatter(
-        current_x, current_y,
-        c="#c8a05a", edgecolors="k", linewidths=0.3,
-        s=60, zorder=3, label="Sediment MPs"
-    )
+    ax.set_facecolor('#cce8f4')   # water blue
+    sc = ax.scatter(pts[:, 0], pts[:, 1],
+                    c=c_vals, cmap=cmap,
+                    s=55, edgecolors='k', linewidths=0.25,
+                    zorder=3)
+    if cmap is not None:
+        plt.colorbar(sc, ax=ax, label='|vy| (m/s)', shrink=0.7, pad=0.02)
+
     ax.set_xlim(0, domain[0])
     ax.set_ylim(0, domain[1])
-    ax.set_xlabel("x (m)", fontsize=9)
-    ax.set_ylabel("y (m)", fontsize=9)
-    ax.set_title(f"t = {time:.3f} s", fontsize=10, fontweight="bold")
-    ax.set_aspect("equal")
-    ax.grid(True, linestyle="--", linewidth=0.4, alpha=0.6)
+    ax.set_xlabel('x (m)', fontsize=9)
+    ax.set_ylabel('y (m)', fontsize=9)
+    ax.set_title(f't = {time:.3f} s', fontsize=10, fontweight='bold')
+    ax.set_aspect('equal')
+    ax.grid(True, linestyle='--', linewidth=0.35, alpha=0.55)
 
-    water_patch = mpatches.Patch(color="#d0e8f5", label="Water")
-    sed_patch = mpatches.Patch(color="#c8a05a", label="Sediment")
-    ax.legend(handles=[water_patch, sed_patch], fontsize=7, loc="lower right")
+    water_p = mpatches.Patch(color='#cce8f4', label='Water')
+    sed_p   = mpatches.Patch(facecolor='saddlebrown', edgecolor='k',
+                             linewidth=0.5, label='Sediment MPs')
+    ax.legend(handles=[water_p, sed_p], fontsize=7, loc='lower right')
 
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
 
 def main():
-    vtk_dir = "vtk_output"
-    output_dir = "results"
+    vtk_dir    = 'vtk_output'
+    output_dir = 'results'
     os.makedirs(output_dir, exist_ok=True)
 
-    # Find all material-point VTK files (exclude background grid file)
-    vtk_pattern = os.path.join(vtk_dir, "MPM_Material_*.vtk")
-    vtk_files = sorted(glob.glob(vtk_pattern))
+    dt = 0.001          # time step used in the simulation
+    output_interval = 0.01  # VTK output every 0.01 s  (every 10 steps)
 
-    if not vtk_files:
+    time_files = _collect_files(vtk_dir, dt=dt)
+    if not time_files:
         print(f"No VTK files found in '{vtk_dir}'. Run the simulation first.")
         return
 
-    # Map time -> filepath
-    time_files = {}
-    for fp in vtk_files:
-        t = get_time_from_filename(os.path.basename(fp))
-        if t is not None:
-            time_files[t] = fp
+    all_times = [t for t, _ in time_files]
+    print(f"Found {len(time_files)} snapshots: "
+          f"t = {all_times[0]:.3f} … {all_times[-1]:.3f} s")
 
-    all_times = sorted(time_files.keys())
-    print(f"Found {len(all_times)} VTK snapshots: t = {all_times[0]:.3f} .. {all_times[-1]:.3f} s")
-
-    # --- Snapshot plot at t = 0.08 s and t = 0.14 s (or closest available) ---
-    target_times = [0.08, 0.14]
+    # ------------------------------------------------------------------
+    # 1) Four-panel snapshot figure: t = 0, 0.08, 0.14, 0.20 s
+    # ------------------------------------------------------------------
+    target_times = [0.0, 0.08, 0.14, 0.20]
     selected = []
     for tgt in target_times:
-        closest = min(all_times, key=lambda t: abs(t - tgt))
-        selected.append(closest)
+        closest_t, closest_fp = min(time_files, key=lambda tf: abs(tf[0] - tgt))
+        selected.append((closest_t, closest_fp))
 
-    fig, axes = plt.subplots(1, len(selected), figsize=(5 * len(selected), 5))
-    if len(selected) == 1:
-        axes = [axes]
+    fig, axes = plt.subplots(1, 4, figsize=(18, 5))
+    for ax, (t, fp) in zip(axes, selected):
+        d = _parse_vtk_binary(fp)
+        _plot_snapshot(ax, d, t, vel_data=d)
 
-    for ax, t in zip(axes, selected):
-        data = parse_vtk_unstructured_grid(time_files[t])
-        plot_snapshot(ax, data, t)
-
-    fig.suptitle("Sediment Dumping Simulation — MPM Snapshots", fontsize=12, fontweight="bold")
+    fig.suptitle('Sediment Dumping Simulation — Material Point Positions',
+                 fontsize=13, fontweight='bold', y=1.01)
     fig.tight_layout()
-    snapshot_path = os.path.join(output_dir, "sediment_snapshots.png")
-    fig.savefig(snapshot_path, dpi=150, bbox_inches="tight")
+    snap_path = os.path.join(output_dir, 'sediment_snapshots.png')
+    fig.savefig(snap_path, dpi=150, bbox_inches='tight')
     plt.close(fig)
-    print(f"Snapshot image saved to '{snapshot_path}'")
+    print(f"Snapshot figure saved → '{snap_path}'")
 
-    # --- Time series: centroid trajectory ---
-    cx_list, cy_list = [], []
-    t_list = []
-    for t in all_times:
-        data = parse_vtk_unstructured_grid(time_files[t])
-        pts = data["points"]
-        disp = data["MP_DISPLACEMENT"]
-        if pts.size == 0:
+    # ------------------------------------------------------------------
+    # 2) Centroid trajectory  (y vs t)
+    # ------------------------------------------------------------------
+    cy_list, vy_list, t_list = [], [], []
+    for t, fp in time_files:
+        d = _parse_vtk_binary(fp)
+        pts = d['points']
+        if pts.shape[0] == 0:
             continue
-        if disp.size > 0 and disp.shape[0] == pts.shape[0]:
-            cx = np.mean(pts[:, 0] + disp[:, 0])
-            cy = np.mean(pts[:, 1] + disp[:, 1])
-        else:
-            cx = np.mean(pts[:, 0])
-            cy = np.mean(pts[:, 1])
-        cx_list.append(cx)
-        cy_list.append(cy)
+        cy_list.append(float(np.mean(pts[:, 1])))
         t_list.append(t)
+        if 'MP_VELOCITY' in d:
+            vy_list.append(float(np.mean(d['MP_VELOCITY'][:, 1])))
 
-    fig2, ax2 = plt.subplots(figsize=(6, 4))
-    ax2.plot(t_list, cy_list, "b-o", markersize=3, linewidth=1.5)
-    ax2.set_xlabel("Time (s)")
-    ax2.set_ylabel("Centroid y-position (m)")
-    ax2.set_title("Vertical descent of sediment centroid")
-    ax2.grid(True, linestyle="--", linewidth=0.4)
-    traj_path = os.path.join(output_dir, "centroid_trajectory.png")
+    # Analytical free-fall from y0 = 0.689 m with v0 = -0.154 m/s
+    y0, v0, g = 0.689, -0.154, 9.81
+    t_arr = np.linspace(0, max(t_list), 300)
+    y_analytical = y0 + v0 * t_arr - 0.5 * g * t_arr**2
+
+    fig2, (ax2a, ax2b) = plt.subplots(1, 2, figsize=(12, 4))
+
+    ax2a.plot(t_list, cy_list, 'b-o', markersize=3, linewidth=1.5,
+              label='MPM centroid')
+    ax2a.plot(t_arr, y_analytical, 'r--', linewidth=1.2,
+              label='Free-fall (analytical)')
+    ax2a.set_xlabel('Time (s)')
+    ax2a.set_ylabel('Centroid y-position (m)')
+    ax2a.set_title('Vertical descent of sediment centroid')
+    ax2a.legend(fontsize=8)
+    ax2a.grid(True, linestyle='--', linewidth=0.4)
+
+    if vy_list:
+        vy_analytical = v0 - g * np.array(t_list)
+        ax2b.plot(t_list, vy_list, 'b-o', markersize=3, linewidth=1.5,
+                  label='MPM mean vy')
+        ax2b.plot(t_list, vy_analytical, 'r--', linewidth=1.2,
+                  label='Free-fall vy (analytical)')
+        ax2b.set_xlabel('Time (s)')
+        ax2b.set_ylabel('Vertical velocity (m/s)')
+        ax2b.set_title('Downward velocity of sediment centroid')
+        ax2b.legend(fontsize=8)
+        ax2b.grid(True, linestyle='--', linewidth=0.4)
+
     fig2.tight_layout()
+    traj_path = os.path.join(output_dir, 'centroid_trajectory.png')
     fig2.savefig(traj_path, dpi=150)
     plt.close(fig2)
-    print(f"Centroid trajectory saved to '{traj_path}'")
+    print(f"Trajectory figure saved → '{traj_path}'")
+
+    # ------------------------------------------------------------------
+    # 3) Summary statistics
+    # ------------------------------------------------------------------
+    print("\n--- Summary ---")
+    print(f"Initial centroid y : {cy_list[0]:.4f} m")
+    print(f"Final   centroid y : {cy_list[-1]:.4f} m")
+    print(f"Total descent      : {cy_list[0]-cy_list[-1]:.4f} m")
+    if vy_list:
+        print(f"Final velocity     : {vy_list[-1]:.3f} m/s")
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()

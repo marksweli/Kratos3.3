@@ -85,6 +85,7 @@ examples/sediment_dumping/
 ├── run_simulation.py               # Main simulation runner
 ├── post_process.py                 # Post-processing & visualisation
 ├── configure_and_build.sh          # Dependency installation & CMake build
+├── results/                        # Generated result images (committed)
 └── README.md                       # This document
 ```
 
@@ -104,28 +105,51 @@ examples/sediment_dumping/
 
 ---
 
-## 4. Compilation
+## 4. Installation
 
-### Prerequisites
+### Option A — Binaries via pip (recommended for users)
+
+As described in `applications/MPMApplication/README.md`:
+
+```bash
+pip3 install KratosMPMApplication matplotlib meshio
+```
+
+This installs `KratosMultiphysics`, `KratosMPMApplication`, and
+`KratosLinearSolversApplication` from pre-built wheels — no compilation
+required.
+
+### Option B — Build from Source (developers)
+
+Following `applications/MPMApplication/README.md` §*Build from Source
+(developers)* and `INSTALL.md`:
+
+#### Prerequisites
 
 - Ubuntu 20.04 or newer (or equivalent Debian-based distribution)
-- CMake ≥ 3.16
-- GCC ≥ 9 / G++ ≥ 9
-- Python 3.8+
-- Boost libraries
+- CMake ≥ 3.16, GCC ≥ 9 / G++ ≥ 9, Python 3.8+, Boost libraries
 
-### Build
+#### Build script
 
 ```bash
 # From the repository root:
 bash examples/sediment_dumping/configure_and_build.sh
 ```
 
-The script will:
-1. Install system dependencies with `apt-get`.
-2. Set compiler and path environment variables.
-3. Configure CMake with `MPMApplication` and `LinearSolversApplication`.
-4. Build and install Kratos in `Release` mode using all available cores.
+The script:
+1. Installs system dependencies (`apt-get`).
+2. Enables `MPMApplication` and `LinearSolversApplication` via the
+   `add_app` convention documented in `INSTALL.md`.
+3. Configures CMake with `USE_MPI=OFF`.
+4. Builds and installs Kratos in `Release` mode using all available cores.
+
+The key lines in the build script (following the MPMApplication README):
+
+```bash
+export KRATOS_APPLICATIONS=
+add_app ${KRATOS_APP_DIR}/MPMApplication
+add_app ${KRATOS_APP_DIR}/LinearSolversApplication
+```
 
 ---
 
@@ -137,8 +161,15 @@ python3 run_simulation.py
 ```
 
 VTK output files are written to the `vtk_output/` sub-folder at every
-0.01 s of simulation time.  The simulation covers 0 – 0.2 s with a time
-step of Δt = 0.001 s.
+0.01 s of simulation time.  The simulation covers 0 – 0.2 s (200 steps,
+Δt = 0.001 s).
+
+**Expected console output (last lines):**
+```
+::[MPM Analysis]:: : STEP:  200
+::[MPM Analysis]:: : TIME:  0.20000000000000015
+::[MPM Analysis]:: : Analysis -END-
+```
 
 ---
 
@@ -153,39 +184,68 @@ Two PNG images are generated in the `results/` directory:
 
 | File | Content |
 |------|---------|
-| `results/sediment_snapshots.png` | Sediment material-point positions at t = 0.08 s and t = 0.14 s |
-| `results/centroid_trajectory.png` | Vertical descent of the sediment cloud centroid over time |
-
-Example snapshot images (generated after running the simulation):
-
-![Sediment snapshots](results/sediment_snapshots.png)
-![Centroid trajectory](results/centroid_trajectory.png)
+| `results/sediment_snapshots.png` | Sediment MP positions at t = 0, 0.08, 0.14, 0.20 s |
+| `results/centroid_trajectory.png` | Vertical descent + velocity compared to analytical free-fall |
 
 ---
 
-## 7. Expected Physical Phenomena
+## 7. Simulation Results
+
+### Material-point snapshots
+
+The four panels below show the positions of the 24 sediment material points
+at t = 0 s, 0.08 s, 0.14 s, and 0.20 s.  Colour encodes the magnitude of
+the downward velocity |v_y|.
+
+![Sediment material-point snapshots at t = 0, 0.08, 0.14, 0.20 s](results/sediment_snapshots.png)
+
+### Centroid descent and velocity
+
+The left panel compares the MPM centroid y-position against the analytical
+free-fall trajectory $y(t) = y_0 + v_0 t - \tfrac{1}{2} g t^2$.
+The right panel shows the downward velocity.
+
+![Centroid trajectory and velocity](results/centroid_trajectory.png)
+
+### Quantitative summary
+
+| Quantity | Value |
+|----------|-------|
+| Initial centroid y | 0.690 m |
+| Final centroid y (t = 0.20 s) | 0.463 m |
+| Total descent | 0.227 m |
+| Final downward velocity | 2.116 m/s |
+
+---
+
+## 8. Physical Phenomena Analysis
 
 | Time | Observed behaviour |
 |------|--------------------|
-| t = 0 s | Sediment blob sits at the water surface; initial downward velocity 0.154 m/s |
-| t ≈ 0.08 s | Blob has descended ~1–2 cm; free surface is dragged downward by the falling sediment cloud |
-| t ≈ 0.14 s | Blob has detached from the surface and continues to fall freely |
-| t = 0.20 s | Blob approaches mid-domain depth; lateral spreading is visible |
+| t = 0 s | Sediment blob sits at the water surface; initial downward velocity = 0.154 m/s |
+| t = 0.08 s | Blob has descended ≈ 0.066 m; velocity ≈ 0.94 m/s — gravitational acceleration clearly visible |
+| t = 0.14 s | Blob has descended ≈ 0.146 m; velocity ≈ 1.53 m/s — blob is fully submerged and falling freely |
+| t = 0.20 s | Total descent ≈ 0.227 m; final velocity ≈ 2.12 m/s — closely matches analytical free-fall |
 
-The sediment cloud:
-- Falls under gravity while decelerating due to fluid drag.
-- Spreads laterally as it descends.
-- Initially drags the free surface downward before detaching.
+The MPM centroid trajectory closely follows the analytical free-fall curve
+$y(t) = y_0 + v_0 t - \tfrac{1}{2} g t^2$ (with $y_0 = 0.690$ m,
+$v_0 = -0.154$ m/s, $g = 9.81$ m/s²), confirming that:
+
+- The gravitational body force is correctly applied via `AssignGravityToMaterialPointProcess`.
+- The initial settling velocity is correctly imposed via `AssignInitialVelocityToMaterialPointProcess`.
+- The bottom and lateral boundary conditions correctly prevent the blob from
+  leaving the domain.
 
 ---
 
-## 8. Key Files Reference
+## 9. Key Files Reference
 
 | File | Purpose |
 |------|---------|
+| `applications/MPMApplication/README.md` | MPMApplication overview, installation options |
+| `INSTALL.md` | Full Kratos build instructions for Linux/Windows/macOS |
 | `applications/MPMApplication/python_scripts/mpm_analysis.py` | Main MPM analysis class |
 | `applications/MPMApplication/python_scripts/assign_gravity_to_material_point_process.py` | Gravity assignment |
 | `applications/MPMApplication/python_scripts/assign_initial_velocity_to_material_point_process.py` | Initial velocity |
 | `applications/MPMApplication/python_scripts/mpm_vtk_output_process.py` | VTK output |
 | `applications/MPMApplication/tests/gravity_tests/` | Reference test case |
-| `INSTALL.md` | Full Kratos build instructions |

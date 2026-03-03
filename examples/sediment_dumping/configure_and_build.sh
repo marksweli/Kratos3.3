@@ -1,9 +1,13 @@
 #!/bin/bash
 # configure_and_build.sh
-# Complete script to install dependencies and build KratosMultiphysics with
-# MPMApplication and LinearSolversApplication on Ubuntu/Debian Linux.
+# Install dependencies and build KratosMultiphysics with MPMApplication and
+# LinearSolversApplication on Ubuntu/Debian Linux (Build from Source – developer
+# approach, as described in applications/MPMApplication/README.md and INSTALL.md).
 #
-# Usage:
+# Quick alternative for users (no compilation required):
+#   pip3 install KratosMPMApplication matplotlib meshio
+#
+# Usage (developer build):
 #   cd /path/to/Kratos3.3
 #   bash examples/sediment_dumping/configure_and_build.sh
 
@@ -22,6 +26,9 @@ sudo apt-get install -y \
     python3-pip \
     python3-numpy \
     python3-matplotlib
+
+# Post-processing dependencies (matplotlib, meshio)
+pip3 install --break-system-packages matplotlib meshio
 
 # --------------------------------------------------------------------------
 # 2. Environment variables
