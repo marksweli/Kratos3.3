@@ -48,10 +48,11 @@ class Visualizer:
 
     def save_snapshot(self, solver, t, output_dir):
         """
-        Create and save a composite figure with three sub-panels:
-          (a) Sediment concentration α_s
-          (b) Sediment velocity magnitude
-          (c) Pressure field
+        Create and save a composite figure with four sub-panels:
+          (a) Full domain – sediment concentration α_s
+          (b) Full domain – sediment velocity |u_s|
+          (c) Zoomed view – α_s around the sediment cloud
+          (d) Zoomed view – pressure field
 
         Parameters
         ----------
@@ -59,13 +60,20 @@ class Visualizer:
         t          : float               – current simulation time [s]
         output_dir : str                 – directory to write PNG
         """
-        fig, axes = plt.subplots(1, 3, figsize=(15, 5))
-        fig.suptitle(f'Sediment Dumping  –  PFEM Two-Fluid  |  t = {t:.3f} s',
-                     fontsize=13, fontweight='bold')
+        fig = plt.figure(figsize=(16, 7))
+        fig.suptitle(
+            f'Sediment Dumping  –  PFEM Two-Fluid  |  t = {t:.3f} s',
+            fontsize=13, fontweight='bold')
 
-        self._plot_concentration(axes[0], solver, t)
-        self._plot_velocity(axes[1], solver, t)
-        self._plot_pressure(axes[2], solver, t)
+        ax1 = fig.add_subplot(1, 4, 1)
+        ax2 = fig.add_subplot(1, 4, 2)
+        ax3 = fig.add_subplot(1, 4, 3)
+        ax4 = fig.add_subplot(1, 4, 4)
+
+        self._plot_concentration(ax1, solver, t)
+        self._plot_velocity(ax2, solver, t)
+        self._plot_concentration_zoomed(ax3, solver, t)
+        self._plot_pressure(ax4, solver, t)
 
         plt.tight_layout()
         fname = os.path.join(output_dir, f'snapshot_t{t:.4f}.png')
@@ -100,16 +108,30 @@ class Visualizer:
     def _plot_concentration(self, ax, solver, t):
         """
         Panel (a): sediment volume fraction α_s.
+        Sediment-rich particles are shown with larger markers.
         """
         ax.set_title('Sediment concentration  α_s', fontsize=10)
-        self._scatter_base(
-            ax, solver,
-            field=solver.alpha_s,
-            cmap=self.cmap_conc,
+        thresh = 0.01
+        bg     = solver.alpha_s < thresh
+        fg     = ~bg
+
+        # Background (water)
+        ax.scatter(solver.pos[bg, 0], solver.pos[bg, 1],
+                   c='#e8f4e8', s=3, linewidths=0, rasterized=True)
+        # Sediment particles
+        sc = ax.scatter(
+            solver.pos[:, 0], solver.pos[:, 1],
+            c=solver.alpha_s, cmap=self.cmap_conc,
             vmin=0.0, vmax=0.65,
-            label='α_s',
+            s=np.where(fg, 60, 4), linewidths=0, rasterized=True,
         )
-        # Annotate the initial water level
+        ax.set_xlim(0, self.Lx)
+        ax.set_ylim(0, self.Ly * 1.05)
+        ax.set_aspect('equal')
+        ax.set_xlabel('x [m]', fontsize=9)
+        ax.set_ylabel('y [m]', fontsize=9)
+        plt.colorbar(sc, ax=ax, label='α_s', fraction=0.046, pad=0.04)
+
         wl = self.params.get('water_level', self.Ly)
         ax.axhline(wl, color='steelblue', lw=0.8, ls='--', alpha=0.5,
                    label='initial free surface')
@@ -118,29 +140,94 @@ class Visualizer:
     def _plot_velocity(self, ax, solver, t):
         """
         Panel (b): sediment velocity magnitude |u_s| with quiver arrows.
+        Only particles with significant sediment (α_s > threshold) are shown
+        with large markers; the rest appear as small background dots.
         """
-        us_mag = np.linalg.norm(solver.us, axis=1)
+        us_mag  = np.linalg.norm(solver.us, axis=1)
+        thresh  = 0.01   # α_s threshold to highlight sediment particles
+
         ax.set_title('Sediment velocity  |u_s|  [m/s]', fontsize=10)
-        self._scatter_base(
-            ax, solver,
-            field=us_mag,
-            cmap='viridis',
-            vmin=0.0, vmax=max(0.3, np.max(us_mag) * 0.8),
-            label='|u_s|  [m/s]',
+
+        # Background particles (pure water)
+        bg = solver.alpha_s < thresh
+        ax.scatter(
+            solver.pos[bg, 0], solver.pos[bg, 1],
+            c='#d0e8f0', s=3, linewidths=0, rasterized=True,
         )
 
-        # Quiver on a coarser sub-grid to avoid clutter
-        skip = max(1, len(solver.pos) // 400)
-        idx  = np.arange(0, len(solver.pos), skip)
-        ax.quiver(
-            solver.pos[idx, 0], solver.pos[idx, 1],
-            solver.us[idx, 0],  solver.us[idx, 1],
-            angles='xy', scale_units='xy',
-            scale=3.0,   width=0.002,
-            color='white', alpha=0.7,
-        )
+        # Sediment-rich particles
+        fg = ~bg
+        if np.any(fg):
+            vmax_vel = max(0.3, np.max(us_mag[fg]) * 0.9)
+            sc = ax.scatter(
+                solver.pos[fg, 0], solver.pos[fg, 1],
+                c=us_mag[fg], cmap='viridis',
+                vmin=0.0, vmax=vmax_vel,
+                s=60, linewidths=0, rasterized=True, zorder=5,
+            )
+            plt.colorbar(sc, ax=ax, label='|u_s|  [m/s]',
+                         fraction=0.046, pad=0.04)
+            # Quiver for sediment particles
+            ax.quiver(
+                solver.pos[fg, 0], solver.pos[fg, 1],
+                solver.us[fg, 0],  solver.us[fg, 1],
+                angles='xy', scale_units='xy',
+                scale=4.0, width=0.004,
+                color='yellow', alpha=0.85, zorder=6,
+            )
+        else:
+            ax.scatter([], [], c=[], cmap='viridis', vmin=0, vmax=0.3, s=1)
+            plt.colorbar(ax.collections[-1], ax=ax,
+                         label='|u_s|  [m/s]', fraction=0.046, pad=0.04)
 
-    def _plot_pressure(self, ax, solver, t):
+        ax.set_xlim(0, self.Lx)
+        ax.set_ylim(0, self.Ly * 1.05)
+        ax.set_aspect('equal')
+        ax.set_xlabel('x [m]', fontsize=9)
+        ax.set_ylabel('y [m]', fontsize=9)
+
+    def _plot_concentration_zoomed(self, ax, solver, t):
+        """
+        Panel (c): zoomed view of α_s around the sediment cloud centre.
+        The zoom window tracks the centre-of-mass of the sediment cloud.
+        """
+        # Find centre of mass of the sediment cloud (weighted by α_s)
+        as_ = solver.alpha_s
+        total = np.sum(as_)
+        if total > 1e-8:
+            cx = np.dot(as_, solver.pos[:, 0]) / total
+            cy = np.dot(as_, solver.pos[:, 1]) / total
+        else:
+            cx, cy = self.Lx / 2.0, self.Ly * 0.8
+
+        # Zoom window  (±0.15 m around CoM, clamped to domain)
+        hw = 0.18
+        x0 = max(0.0,    cx - hw)
+        x1 = min(self.Lx, cx + hw)
+        y0 = max(0.0,    cy - hw)
+        y1 = min(self.Ly * 1.1, cy + hw)
+
+        ax.set_title('Zoomed: α_s (cloud CoM)', fontsize=10)
+        sc = ax.scatter(
+            solver.pos[:, 0], solver.pos[:, 1],
+            c=solver.alpha_s, cmap=self.cmap_conc,
+            vmin=0.0, vmax=0.65,
+            s=30, linewidths=0, rasterized=True,
+        )
+        ax.set_xlim(x0, x1)
+        ax.set_ylim(y0, y1)
+        ax.set_aspect('equal')
+        ax.set_xlabel('x [m]', fontsize=9)
+        ax.set_ylabel('y [m]', fontsize=9)
+        plt.colorbar(sc, ax=ax, label='α_s', fraction=0.046, pad=0.04)
+
+        # Centre-of-mass marker
+        ax.plot(cx, cy, 'k+', ms=8, mew=1.5, label=f'CoM y={cy:.3f}m')
+        ax.legend(fontsize=7, loc='upper right')
+
+        # Initial free surface
+        wl = self.params.get('water_level', self.Ly)
+        ax.axhline(wl, color='steelblue', lw=0.8, ls='--', alpha=0.6)
         """
         Panel (c): dynamic pressure field.
         """
