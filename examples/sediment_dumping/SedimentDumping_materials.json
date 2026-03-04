@@ -1,0 +1,35 @@
+{
+    "properties" : [{
+        "model_part_name" : "Initial_MPM_Material.Parts_Water",
+        "properties_id"   : 1,
+        "Material"        : {
+            "constitutive_law" : {
+                "name" : "DispNewtonianFluidPlaneStrain2DLaw"
+            },
+            "Variables"        : {
+                "THICKNESS"                  : 1.0,
+                "MATERIAL_POINTS_PER_ELEMENT": 4,
+                "DENSITY"                    : 1000.0,
+                "BULK_MODULUS"               : 2000000.0,
+                "DYNAMIC_VISCOSITY"          : 0.001
+            },
+            "Tables"           : {}
+        }
+    },{
+        "model_part_name" : "Initial_MPM_Material.Parts_Sediment",
+        "properties_id"   : 2,
+        "Material"        : {
+            "constitutive_law" : {
+                "name" : "DispNewtonianFluidPlaneStrain2DLaw"
+            },
+            "Variables"        : {
+                "THICKNESS"                  : 1.0,
+                "MATERIAL_POINTS_PER_ELEMENT": 4,
+                "DENSITY"                    : 1800.0,
+                "BULK_MODULUS"               : 2000000.0,
+                "DYNAMIC_VISCOSITY"          : 0.05
+            },
+            "Tables"           : {}
+        }
+    }]
+}
